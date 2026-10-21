@@ -14,7 +14,8 @@ android {
 		targetSdk = libs.versions.android.targetSdk.get().toInt()
 
 		// Release version
-		applicationId = namespace
+		// RTI fork: own application id so it installs alongside the official app
+		applicationId = "$namespace.rti"
 		versionName = project.getVersionName()
 		versionCode = getVersionCode(versionName!!)
 	}
@@ -43,6 +44,14 @@ android {
 				keyAlias = signingKeyAlias
 				keyPassword = signingKeyPassword
 			}
+		} else if (file("rti.keystore").exists()) {
+			// RTI fork: fixed personal sideload key so updates install over the top
+			create("release") {
+				storeFile = file("rti.keystore")
+				storePassword = "jellyfin-rti"
+				keyAlias = "rti"
+				keyPassword = "jellyfin-rti"
+			}
 		}
 	}
 
@@ -58,12 +67,12 @@ android {
 			proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
 			// Set package names used in various XML files
-			resValue("string", "app_id", namespace!!)
-			resValue("string", "app_search_suggest_authority", "${namespace}.content")
-			resValue("string", "app_search_suggest_intent_data", "content://${namespace}.content/intent")
+			resValue("string", "app_id", defaultConfig.applicationId!!)
+			resValue("string", "app_search_suggest_authority", "${defaultConfig.applicationId}.content")
+			resValue("string", "app_search_suggest_intent_data", "content://${defaultConfig.applicationId}.content/intent")
 
 			// Set flavored application name
-			resValue("string", "app_name", "@string/app_name_release")
+			resValue("string", "app_name", "Jellyfin RTI")
 
 			buildConfigField("boolean", "DEVELOPMENT", "false")
 
@@ -75,9 +84,9 @@ android {
 			applicationIdSuffix = ".debug"
 
 			// Set package names used in various XML files
-			resValue("string", "app_id", namespace + applicationIdSuffix)
-			resValue("string", "app_search_suggest_authority", "${namespace + applicationIdSuffix}.content")
-			resValue("string", "app_search_suggest_intent_data", "content://${namespace + applicationIdSuffix}.content/intent")
+			resValue("string", "app_id", defaultConfig.applicationId + applicationIdSuffix)
+			resValue("string", "app_search_suggest_authority", "${defaultConfig.applicationId + applicationIdSuffix}.content")
+			resValue("string", "app_search_suggest_intent_data", "content://${defaultConfig.applicationId + applicationIdSuffix}.content/intent")
 
 			// Set flavored application name
 			resValue("string", "app_name", "@string/app_name_debug")

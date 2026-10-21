@@ -1,0 +1,49 @@
+name: RTI / Build APK
+
+on:
+  push:
+    branches:
+      - rti
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version-file: .tools-versions
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Work out version
+        id: ver
+        run: |
+          N=${{ github.run_number }}
+          echo "name=1.$((N / 100)).$((N % 100))" >> "$GITHUB_OUTPUT"
+      - name: Assemble release APK
+        env:
+          JELLYFIN_VERSION: ${{ steps.ver.outputs.name }}
+        run: ./gradlew assembleRelease
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          find app/build/outputs/apk/release -name "*.apk" -exec cp {} out/jellyfin-rti-v${{ steps.ver.outputs.name }}.apk \;
+          ls -l out
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rti-v${{ steps.ver.outputs.name }}
+          name: Jellyfin RTI v${{ steps.ver.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          files: out/*.apk
+          body: |
+            Jellyfin Android TV - RTI fork (letter jump via SendString "letter:A").
+            Built from ${{ github.sha }}.

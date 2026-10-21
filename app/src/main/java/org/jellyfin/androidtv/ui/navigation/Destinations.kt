@@ -45,6 +45,14 @@ object Destinations {
 			putString(Extras.IncludeType, includeType)
 		}
 
+	// RTI fork: open a library grid already filtered to a start letter ("#" or A-Z, null = all)
+	fun libraryBrowserAtLetter(item: BaseItemDto, startLetter: String?) =
+		fragmentDestination<BrowseGridFragment> {
+			putString(Extras.Folder, Json.encodeToString(item))
+			putString(Extras.IncludeType, null)
+			putString(Extras.StartLetter, startLetter ?: "all")
+		}
+
 	// TODO only pass item id instead of complete JSON to browsing destinations
 	fun librarySmartScreen(item: BaseItemDto) = fragmentDestination<BrowseViewFragment> {
 		putString(Extras.Folder, Json.encodeToString(item))

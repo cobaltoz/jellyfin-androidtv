@@ -419,7 +419,9 @@ public class ItemRowAdapter extends MutableObjectAdapter<Object> {
             case AlbumArtists:
                 return mAlbumArtistsQuery != null ? mAlbumArtistsQuery.getNameStartsWith() : null;
             default:
-                return mQuery != null ? mQuery.getNameStartsWith() : null;
+                if (mQuery == null) return null;
+                if (mQuery.getNameStartsWith() == null && "A".equals(mQuery.getNameLessThan())) return "#";
+                return mQuery.getNameStartsWith();
         }
     }
 
@@ -440,11 +442,8 @@ public class ItemRowAdapter extends MutableObjectAdapter<Object> {
                 }
                 break;
             default:
-                if (value != null && value.equals("#")) {
-                    mQuery = ItemRowAdapterHelperKt.setItemsStartLetter(mQuery, null);
-                } else {
-                    mQuery = ItemRowAdapterHelperKt.setItemsStartLetter(mQuery, value);
-                }
+                // RTI fork: "#" is handled by the helper (NameLessThan=A)
+                mQuery = ItemRowAdapterHelperKt.setItemsStartLetter(mQuery, value);
                 break;
         }
     }

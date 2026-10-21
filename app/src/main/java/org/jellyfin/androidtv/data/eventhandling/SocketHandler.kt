@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jellyfin.androidtv.data.model.DataRefreshService
+import org.jellyfin.androidtv.rti.RemoteLetter
 import org.jellyfin.androidtv.ui.itemhandling.ItemLauncher
 import org.jellyfin.androidtv.ui.navigation.Destinations
 import org.jellyfin.androidtv.ui.navigation.NavigationRepository
@@ -25,10 +26,12 @@ import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.exception.ApiClientException
 import org.jellyfin.sdk.api.client.extensions.sessionApi
 import org.jellyfin.sdk.api.client.extensions.userLibraryApi
+import org.jellyfin.sdk.api.client.extensions.userViewsApi
 import org.jellyfin.sdk.api.sockets.subscribe
 import org.jellyfin.sdk.api.sockets.subscribeGeneralCommand
 import org.jellyfin.sdk.api.sockets.subscribeGeneralCommands
 import org.jellyfin.sdk.model.api.BaseItemKind
+import org.jellyfin.sdk.model.api.CollectionType
 import org.jellyfin.sdk.model.api.GeneralCommandType
 import org.jellyfin.sdk.model.api.LibraryChangedMessage
 import org.jellyfin.sdk.model.api.LibraryUpdateInfo
@@ -154,7 +157,10 @@ class SocketHandler(
 				val text by message
 				val string by message
 
-				onDisplayMessage(header, text ?: string)
+				// RTI fork: "letter:X" strings drive the library grid instead of showing a toast
+				val letterCommand = RemoteLetter.parse(string ?: text)
+				if (letterCommand != null) onRemoteLetter(letterCommand)
+				else onDisplayMessage(header, text ?: string)
 			}
 			.launchIn(coroutineScope)
 	}
@@ -236,6 +242,41 @@ class SocketHandler(
 
 			else -> navigationRepository.navigate(Destinations.itemDetails(itemId))
 		}
+	}
+
+	private suspend fun onRemoteLetter(command: RemoteLetter.Command) = withContext(Dispatchers.Main) {
+		val playbackController = playbackControllerContainer.playbackController
+		if (playbackController?.isPlaying == true || playbackController?.isPaused == true) {
+			Timber.i("Ignoring remote letter ${command.letter}: playback in progress")
+			return@withContext
+		}
+
+		// A library grid is on screen - let it apply the letter itself
+		if (RemoteLetter.listener?.onRemoteLetter(command.letter, command.libraryType) == true) return@withContext
+
+		// Otherwise open the Movies (or TV Shows) library grid at that letter
+		val wanted = if (command.libraryType == "tvshows") CollectionType.TVSHOWS else CollectionType.MOVIES
+		val view = try {
+			withContext(Dispatchers.IO) {
+				api.userViewsApi.getUserViews().content.items.firstOrNull { it.collectionType == wanted }
+			}
+		} catch (err: ApiClientException) {
+			Timber.e(err, "Unable to load user views for remote letter")
+			null
+		}
+
+		if (view == null) {
+			Timber.w("Remote letter: no $wanted library found")
+			return@withContext
+		}
+
+		val startLetter = when (command.letter) {
+			"next" -> RemoteLetter.LETTERS.first { it != "#" }
+			"prev" -> RemoteLetter.LETTERS.last()
+			"pick", "all" -> "all"
+			else -> command.letter
+		}
+		navigationRepository.navigate(Destinations.libraryBrowserAtLetter(view, startLetter))
 	}
 
 	private fun onDisplayMessage(header: String?, text: String?) {

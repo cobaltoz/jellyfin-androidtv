@@ -45,6 +45,7 @@ import org.jellyfin.androidtv.databinding.HorizontalGridBrowseBinding;
 import org.jellyfin.androidtv.databinding.PopupEmptyBinding;
 import org.jellyfin.androidtv.preference.LibraryPreferences;
 import org.jellyfin.androidtv.preference.PreferencesRepository;
+import org.jellyfin.androidtv.rti.RemoteLetter;
 import org.jellyfin.androidtv.ui.AlphaPickerView;
 import org.jellyfin.androidtv.ui.itemhandling.BaseRowItem;
 import org.jellyfin.androidtv.ui.itemhandling.ItemLauncher;
@@ -129,6 +130,12 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
 
     private boolean mDirty = true; // CardHeight, RowDef or GridSize changed
 
+    // RTI fork: remote jump-to-letter
+    private String mPendingLetter = null;     // applied on the next loadGrid(); "all" = clear
+    private boolean mForceNameSort = false;   // remote letter forces name sort until the user picks another sort
+    private JumplistPopup mJumplistPopup = null;
+    private final RemoteLetter.Listener mRemoteLetterListener = this::onRemoteLetter;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -145,6 +152,11 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         mFolder = Json.Default.decodeFromString(BaseItemDto.Companion.serializer(), getArguments().getString(Extras.Folder));
         mParentId = mFolder.getId();
         mainTitle = mFolder.getName();
+        String startLetter = getArguments().getString(Extras.StartLetter, null);
+        if (startLetter != null) {
+            mPendingLetter = startLetter;
+            mForceNameSort = true;
+        }
         libraryPreferences = preferencesRepository.getValue().getLibraryPreferences(Objects.requireNonNull(mFolder.getDisplayPreferencesId()));
         mPosterSizeSetting = libraryPreferences.get(LibraryPreferences.Companion.getPosterSize());
         mImageType = libraryPreferences.get(LibraryPreferences.Companion.getImageType());
@@ -202,6 +214,53 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         createGrid();
         loadGrid();
         addTools();
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        RemoteLetter.INSTANCE.setListener(mRemoteLetterListener);
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        if (RemoteLetter.INSTANCE.getListener() == mRemoteLetterListener) RemoteLetter.INSTANCE.setListener(null);
+        if (mJumplistPopup != null) mJumplistPopup.dismiss();
+    }
+
+    // RTI fork: called on the main thread by SocketHandler for "letter:" SendString commands
+    private boolean onRemoteLetter(String letter, String libraryType) {
+        if (libraryType != null) {
+            CollectionType want = "tvshows".equals(libraryType) ? CollectionType.TVSHOWS : CollectionType.MOVIES;
+            if (mFolder.getCollectionType() != want) return false;
+        }
+        if (binding == null) return false;
+
+        if ("pick".equals(letter)) {
+            if (mJumplistPopup != null && mLetterButton != null && mLetterButton.getVisibility() == View.VISIBLE) mJumplistPopup.show();
+            else if (mJumplistPopup != null) {
+                // letter picker only shows for name sort - switch to it first
+                mForceNameSort = true;
+                loadGrid();
+                mJumplistPopup.show();
+            }
+            return true;
+        }
+
+        String current = mAdapter != null ? mAdapter.getStartLetter() : null;
+        String target;
+        if ("next".equals(letter)) target = RemoteLetter.INSTANCE.step(current, true);
+        else if ("prev".equals(letter)) target = RemoteLetter.INSTANCE.step(current, false);
+        else target = letter; // "all", "#", A-Z
+
+        Timber.i("Remote letter %s -> %s", letter, target);
+        if (mJumplistPopup != null) mJumplistPopup.dismiss();
+        mForceNameSort = true;
+        mPendingLetter = target;
+        mCurrentItem = null;
+        loadGrid();
+        return true;
     }
 
     @Override
@@ -697,7 +756,12 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             buildAdapter();
         }
 
-        mAdapter.setSortBy(getSortOption(libraryPreferences.get(LibraryPreferences.Companion.getSortBy())));
+        ItemSortBy sortBy = mForceNameSort ? ItemSortBy.SORT_NAME : libraryPreferences.get(LibraryPreferences.Companion.getSortBy());
+        mAdapter.setSortBy(getSortOption(sortBy));
+        if (mPendingLetter != null) {
+            mAdapter.setStartLetter("all".equals(mPendingLetter) ? null : mPendingLetter);
+            mPendingLetter = null;
+        }
         mAdapter.Retrieve();
     }
 
@@ -738,6 +802,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
                 sortMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
                     @Override
                     public boolean onMenuItemClick(MenuItem item) {
+                        mForceNameSort = false; // RTI fork: user picked a sort, stop forcing name sort
                         mAdapter.setSortBy(Objects.requireNonNull(sortOptions.get(item.getItemId())));
                         mAdapter.Retrieve();
                         item.setChecked(true);
@@ -797,6 +862,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         binding.toolBar.addView(mFavoriteButton);
 
         JumplistPopup jumplistPopup = new JumplistPopup();
+        mJumplistPopup = jumplistPopup;
         mLetterButton = new ImageButton(requireContext(), null, 0, R.style.Button_Icon);
         mLetterButton.setImageResource(R.drawable.ic_jump_letter);
         mLetterButton.setMaxHeight(size);

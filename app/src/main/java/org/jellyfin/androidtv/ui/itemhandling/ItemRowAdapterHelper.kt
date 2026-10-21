@@ -689,9 +689,11 @@ fun setArtistsStartLetter(
 fun setItemsStartLetter(
 	request: GetItemsRequest,
 	startLetter: String?,
-) = request.copy(
-	nameStartsWith = startLetter,
-)
+) = when (startLetter) {
+	// RTI fork: "#" = titles sorting before "A" (digits/symbols), same as the web client
+	"#" -> request.copy(nameStartsWith = null, nameLessThan = "A")
+	else -> request.copy(nameStartsWith = startLetter, nameLessThan = null)
+}
 
 @JvmOverloads
 fun ItemRowAdapter.refreshItem(
